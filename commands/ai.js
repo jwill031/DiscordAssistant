@@ -1,64 +1,107 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { RsnChat } = require('rsnchat');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { Prodia } = require('prodia.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("ai")
-        .setDescription("Assistants AI")
-        .addStringOption(option => option
-            .setName('type')
-            .setDescription('What do you want the AI to do?')
-            .setRequired(true)
-            .addChoices(
-                { name: "Answer", value: "answer" },
-                { name: "Code", value: "code" },
-                { name: "Image Generation", value: "imagine" }
+        .setDescription('Draw images, request code, debug code and more')
+        .setContexts(0, 1, 2)
+        .setIntegrationTypes(1)
+        .addSubcommand((com) => com
+            .setName('general')
+            .setDescription('Text-based AI')
+            .addStringOption((opt) => opt
+                .setName('query')
+                .setDescription('What would you like to know?')
+                .setRequired(true)
             )
         )
-        .addStringOption(option => option
-            .setName('query')
-            .setDescription("Query to give to the AI")
-            .setRequired(true)
+        .addSubcommand((com) => com
+            .setName('code')
+            .setDescription('Request code from gemini.')
+            .addStringOption((opt) => opt
+                .setName('code-prompt')
+                .setDescription('What do you want me to code')
+                .setRequired(true)
+            )
+        )
+        .addSubcommand((com) => com
+            .setName('imagine')
+            .setDescription('Imagine images with AI')
+            .addStringOption((opt) => opt
+                .setName('image-prompt')
+                .setDescription('What do you want me to draw')
+                .setRequired(true)
+            )
         )
         .setContexts(0, 1, 2)
         .setIntegrationTypes(1),
     execute: async function (interaction, client) {
-        const { options } = interaction;
 
-        const type = options.getString('type');
-        const query = options.getString('query');
+        async function gemini(prompt) {
+            const ai = new GoogleGenerativeAI(client.config.gemini_api);
+            const generationConfig = {
+                maxOutputTokens: 640,
+            };
+            const model = ai.getGenerativeModel({
+                model: "gemini-1.5-flash",
+                generationConfig
+            });
+
+            const result = await model.generateContent(prompt);
+            embed.setDescription(`${result.response.text()}`);
+        }
 
         await interaction.deferReply();
 
-        const rsnchat = new RsnChat(client.config.RSNCHAT_API);
+        const { options } = interaction;
+
+        const query = options.getString('query'); // generalAI;
+        const codePrompt = options.getString('code-prompt'); // requesting code;
+        const imaginePrompt = options.getString('imagine-prompt'); // generating images;
+
+        const subCommand = options.getSubcommand();
 
         const embed = new EmbedBuilder()
             .setColor(client.config.colour)
+        //.setAuthor({ iconURL: client.user.displayAvatarURL() });
 
-        switch (type) {
-            case "answer":
-                rsnchat.gemini(query).then(async (response) => {
-                    //console.log(response);
-                    embed.setDescription(`${response.message}`);
-                    await interaction.editReply({ embeds: [embed] });
-                })
+        switch (subCommand) {
+            case "general":
+                if (query.startsWith('code')) return interaction.editReply({ content: `Please use \`/assistant code\` to generate code related responses`, ephemeral: true });
+
+                await gemini(query);
+                await interaction.editReply({ embeds: [embed] });
                 break;
             case "code":
-                rsnchat.gemini("Code me " + query).then(async (response) => {
-                    //console.log(response);
-                    embed.setDescription(`${response.message}`);
-                    await interaction.editReply({ embeds: [embed] });
-                })
+                const newPrompt = `Code me ` + codePrompt;
+                await gemini(newPrompt);
+                await interaction.editReply({ embeds: [embed] });
                 break;
             case "imagine":
-                const negative_prompt = "bad quality, blurry";
+                const { generateImage, wait } = Prodia(client.config.prodia_api);
 
-                const model = "absolutereality_v181.safetensors [3d9d4d2b]";
+                const imaginePrompt = interaction.options.getString('image-prompt');
 
-                rsnchat.prodia(query, negative_prompt, model).then(async (response) => {
-                    await interaction.editReply({ files: [response.imageUrl], content: `${query}` });
-                });
-                break;
+                const generate = async (prompt) => {
+                    const result = await generateImage({
+                        prompt: prompt,
+                        model: "juggernaut_aftermath.safetensors [5e20c455]",
+                        negative_prompt: "",
+                        sampler: "DPM++ 2M Karras",
+                        cfg_scale: 9,
+                        steps: 20,
+                        seed: -1,
+                        upscale: true,
+                        //image_style: "cinematic"
+                    })
+
+                    return await wait(result);
+                }
+
+                const response = await generate(imaginePrompt);
+                await interaction.editReply({ content: `${query}`, files: [response.imageUrl] })
         }
     }
 }
