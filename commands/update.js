@@ -1,3 +1,5 @@
+// will not work on user installs.
+
 const {
     SlashCommandBuilder,
     ActivityType,
