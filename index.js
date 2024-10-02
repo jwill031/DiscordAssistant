@@ -9,21 +9,9 @@ client.config = require('./config.json');
 client.cooldowns = new Map();
 client.cache = new Map();
 
-// Each of these exports a function, it's the same as doing
-// const ComponentLoader = require('./utils/ComponentLoader.js');
-// ComponentLoader(client);
 require('./utils/ComponentLoader.js')(client);
 require('./utils/EventLoader.js')(client);
 require('./utils/RegisterCommands.js')(client);
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Here we connect to the database
-// It has been moved outside of the ready event so we don't have to wait on discord
-// [Application startup] -> [client.login()] -> [Discord responds] -> [Ready event] -> [Database connection]
-//
-// This way we can connect to the database while waiting for discord to respond
-// [Application startup] -> [Database connection] -> [client.login()] -> [Discord responds] -> [Ready event]
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 console.log(`Logging in...`);
 client.login(client.config.TOKEN);
