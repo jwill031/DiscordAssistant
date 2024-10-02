@@ -1,88 +1,80 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { Prodia } = require('prodia.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName("ai")
-        .setDescription('Draw images, request code, debug code and more')
+        .setName('ai')
+        .setDescription("Artificial Intelligence")
         .setContexts(0, 1, 2)
         .setIntegrationTypes(1)
-        .addSubcommand((com) => com
-            .setName('general')
-            .setDescription('Text-based AI')
-            .addStringOption((opt) => opt
-                .setName('query')
-                .setDescription('What would you like to know?')
-                .setRequired(true)
-            )
-        )
-        .addSubcommand((com) => com
+        .addSubcommand(com => com
             .setName('code')
-            .setDescription('Request code from gemini.')
-            .addStringOption((opt) => opt
+            .setDescription("Complete code for you")
+            .addStringOption(option => option
                 .setName('code-prompt')
-                .setDescription('What do you want me to code')
+                .setDescription("What do you want me to code?")
                 .setRequired(true)
             )
         )
-        .addSubcommand((com) => com
-            .setName('imagine')
-            .setDescription('Imagine images with AI')
-            .addStringOption((opt) => opt
+        .addSubcommand(com => com
+            .setName('answer')
+            .setDescription("Answer a general question for you.")
+            .addStringOption(option => option
+                .setName('query')
+                .setDescription("What do you to know?")
+                .setRequired(true)
+            )
+        )
+        .addSubcommand(com => com
+            .setName('draw')
+            .setDescription("Draw an image for you")
+            .addStringOption(option => option
                 .setName('image-prompt')
-                .setDescription('What do you want me to draw')
+                .setDescription("What do you want me to draw?")
                 .setRequired(true)
             )
-        )
-        .setContexts(0, 1, 2)
-        .setIntegrationTypes(1),
+        ),
     execute: async function (interaction, client) {
+        const { options } = interaction;
 
-        async function gemini(prompt) {
+        await interaction.deferReply();
+
+        const embed = new EmbedBuilder()
+        .setColor(client.config.colour)
+        .setFooter({ text: `Requested by ${interaction.user.displayName}`, iconURL: interaction.user.displayAvatarURL() })
+        .setTimestamp();
+
+        async function geminiReq(prompt) {
             const ai = new GoogleGenerativeAI(client.config.gemini_api);
             const generationConfig = {
                 maxOutputTokens: 640,
             };
+
             const model = ai.getGenerativeModel({
                 model: "gemini-1.5-flash",
                 generationConfig
             });
-
             const result = await model.generateContent(prompt);
-            embed.setDescription(`${result.response.text()}`);
-        }
+            embed.setDescription(`${result.response.text()}`)
+            .setTitle(prompt)
+        };
 
-        await interaction.deferReply();
+        const subcommand = options.getSubcommand();
+        const codeprompt = options.getString("code-prompt");
+        const query = options.getString('query');
+        const imageprompt = options.getString("image-prompt");
 
-        const { options } = interaction;
+        try {
 
-        const query = options.getString('query'); // generalAI;
-        const codePrompt = options.getString('code-prompt'); // requesting code;
-        const imaginePrompt = options.getString('imagine-prompt'); // generating images;
-
-        const subCommand = options.getSubcommand();
-
-        const embed = new EmbedBuilder()
-            .setColor(client.config.colour)
-        //.setAuthor({ iconURL: client.user.displayAvatarURL() });
-
-        switch (subCommand) {
-            case "general":
-                if (query.startsWith('code')) return interaction.editReply({ content: `Please use \`/assistant code\` to generate code related responses`, ephemeral: true });
-
-                await gemini(query);
+            if (subcommand === 'code') {
+                await geminiReq("Code me " + codeprompt);
                 await interaction.editReply({ embeds: [embed] });
-                break;
-            case "code":
-                const newPrompt = `Code me ` + codePrompt;
-                await gemini(newPrompt);
+            } else if (subcommand === 'query') {
+                await geminiReq(query);
                 await interaction.editReply({ embeds: [embed] });
-                break;
-            case "imagine":
+            } else if (subcommand === 'draw') {
                 const { generateImage, wait } = Prodia(client.config.prodia_api);
-
-                const imaginePrompt = interaction.options.getString('image-prompt');
 
                 const generate = async (prompt) => {
                     const result = await generateImage({
@@ -96,12 +88,28 @@ module.exports = {
                         upscale: true,
                         //image_style: "cinematic"
                     })
-
+        
                     return await wait(result);
                 }
+        
+                const response = await generate(imageprompt);
+                embed.setTitle(imageprompt)
+                .setURL(response.imageUrl)
+                .setImage(response.imageUrl);
 
-                const response = await generate(imaginePrompt);
-                await interaction.editReply({ content: `${query}`, files: [response.imageUrl] })
+                const button = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(response.imageUrl)
+                    .setLabel('Link to Image')
+                )
+
+                await interaction.editReply({ embeds: [embed], components: [button] });
+            }
+        } catch (error) {
+            client.logs.debug(error);
+            await interaction.editReply({ content: `Failed to fetch image\n${error}`})
         }
     }
 }
